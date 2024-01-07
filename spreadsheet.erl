@@ -108,14 +108,16 @@ case Result of
                                 false -> error;
                                 %sono il proprietario
                                 true -> io:format("i pid sono uguali"),
+                                        Query = qlc:q(
+                                            [X||X<-mnesia:table(policy),
+                                                X#policy.pid =:= Proc,
+                                                X#policy.foglio =:= Foglio ]
+                                            ),
                                         F2 = fun()->
-                                                        mnesia:read({policy,Proc})
+                                            qlc:e(Query)
+                                                       % mnesia:read({policy,Proc})
                                             end,
-                                        %leggo se il foglio è dentro la tabella 
-                                        %NB: DA QUI IN POI FUNZIONA BENE SOLO SE I PID SONO IN CONDIVISIONE SU UN UNICO FOGLIO, ALTRIMENTI NON FUNZIONA BENE
-                                        %BISOGNA ANCORA LAVORARCI PERCHè NON C'è UN METODO CHE LEGGE UNA SINGOLA RIGA IN UNA TABELLA PURTROPPO
-                                        %MA LEGGE OGNI CHIAVE PRESENTE IN QUELLA TABELLA
-                                        %QUINDI CI VUOLE UN ALTRO METODO CHE "FILTRA" LA LISTA RISULTATO PER VEDERE SE IL PID C'è GIA (O UNA ROBA DEL GENERE)
+                                        %leggo se il pid e il foglio sono già presenti nella tabella
                                         {atomic,Result1} = mnesia:transaction(F2),
                                         case Result1 of
                                             %tabella "vuota" quindi posso scrivere
