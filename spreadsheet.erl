@@ -108,6 +108,11 @@ case Result of
                                 false -> error;
                                 %sono il proprietario
                                 true -> io:format("i pid sono uguali"),
+                                       F1 = fun() ->
+                                                    Data = #policy{pid=self(),foglio=Foglio,politica=write},
+                                                    mnesia:write(Data)
+                                            end,
+                                        mnesia:transaction(F1),
                                         Query = qlc:q(
                                             [X||X<-mnesia:table(policy),
                                                 X#policy.pid =:= Proc,
