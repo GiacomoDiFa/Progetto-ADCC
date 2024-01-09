@@ -14,14 +14,15 @@
 
 % definisco i record che utilizzero'
 %record che rappresenta foglio
--record(spreadsheet, {table,riga, colonna}).
+-record(spreadsheet, {table, riga, colonne}).
 %record che rappresenta owner del foglio
--record(owner,{foglio,pid}).
+-record(owner, {foglio, pid}).
 %record che rappresenta le policy
--record(policy,{pid,foglio,politica}).
+-record(policy, {pid, foglio, politica}).
 
+%PRIMA FARLO IN LOCALE POI NEL DISTRIBUITO (FILE SHOP_DB MATTE)
 %FARE CONTROLLO ERRORI SE UNO DIGITA MALE O SE QUALCOSA NON VA A BUON FINE ETC
-new(Name,N,M,K) ->
+new(Name, N, M, K) ->
     % creo il DB solo in locale -> node()
     Nodelist = [node()],
     mnesia:create_schema(Nodelist),
@@ -29,122 +30,134 @@ new(Name,N,M,K) ->
     mnesia:start(),
     % creo lo schema delle due tablelle del DB coi campi che prendo dai records
     SpreadsheetFields = record_info(fields, spreadsheet),
-    OwnerFields = record_info(fields,owner),
-    PolicyFields = record_info(fields,policy),
+    OwnerFields = record_info(fields, owner),
+    PolicyFields = record_info(fields, policy),
     % NB il nome della tabella e' == al nome dei records che essa ospita
     % specifico i parametri opzionali per avere una copia del DB
     % su disco e in RAM anche nei nodi distribuiti
-    mnesia:create_table(Name,[
+    mnesia:create_table(Name, [
         {attributes, SpreadsheetFields},
         {disc_copies, Nodelist},
-        {type,bag}
+        {type, bag}
     ]),
-    mnesia:create_table(owner,[
-        {attributes,OwnerFields},
-        {disc_copies,Nodelist}]),
-    mnesia:create_table(policy,[
-        {attributes,PolicyFields},
-        {disc_copies,Nodelist},
-        {type,bag}]),
+    mnesia:create_table(owner, [
+        {attributes, OwnerFields},
+        {disc_copies, Nodelist}
+    ]),
+    mnesia:create_table(policy, [
+        {attributes, PolicyFields},
+        {disc_copies, Nodelist},
+        {type, bag}
+    ]),
     %popolo il foglio con k tabelle di n righe e m colonne
-    popola_foglio(Name,K,N,M),
+    popola_foglio(Name, K, N, M),
     %creo una nuova tabella in cui dico che il nodo è proprietario del foglio (tabella)
     popola_owner_table(Name)
 .
 
+%MAGARI FARE CONTROLLO ERRORI SU TRANSAZIONI MNESIA
 popola_owner_table(Name)->
     F = fun()->
-        Data = #owner{foglio=Name,pid=self()},
+        Data = #owner{foglio=Name, pid=self()},
         mnesia:write(Data)
-        end,
-        mnesia:transaction(F)
-    .
+    end,
+    mnesia:transaction(F)
+.
 
-crea_riga(Name,I,J,M) ->
-    {Name,{I},{J},{crea_colonne(M)}}.
+crea_riga(Name, I, J, M) -> {Name, {I}, {J}, {crea_colonne(M)}}.
 
-
-popola_foglio(Name,K, N,M) when K > 0, N > 0 ->
-    Fila = fun(I) ->
-        lists:map(fun(J) -> crea_riga(Name,I,J,M) end, lists:seq(0, N-1))
+popola_foglio(Name, K, N, M) when K > 0, N > 0 ->
+    Fila = fun(I) -> 
+        lists:map(
+            fun(J) -> 
+                crea_riga(Name, I, J, M) 
+            end, 
+            lists:seq(0, N-1)
+        )
     end,
     Matrice = lists:flatmap(Fila, lists:seq(0, K-1)),
-    Matrice,
-    salva_in_mnesia(Name,Matrice)
-    .
+    %Matrice,
+    salva_in_mnesia(Name, Matrice)
+.
 
-crea_colonne(M)->
-    lists:duplicate(M, 0).
+crea_colonne(M)-> lists:duplicate(M, 0).
 
-salva_in_mnesia(Name,Matrice) ->
+salva_in_mnesia(Name, Matrice) ->
     F = fun() ->
-        lists:foreach(fun(Elem)-> mnesia:write(Name,Elem,write)end,Matrice)
+        lists:foreach(
+            fun(Elem)-> 
+                mnesia:write(Name, Elem, write)
+            end,
+            Matrice
+        ) 
     end,
-mnesia:transaction(F)
+    mnesia:transaction(F)
 .
 
 
 
-
-
-share(Foglio,AccessPolicies)->
-%AccessPolicies = {Proc,AP}
-%Proc = Pid
-%AP = read | write
-%controllo che share la chiami solo il proprietario della tabella
-{Proc,Ap} = AccessPolicies,
-F = fun() ->
-    mnesia:read({owner,Foglio}) 
-    end,
-{atomic,Result} = mnesia:transaction(F),
-case Result of
-    %il foglio non esiste
-    [] ->  io:format("Nessun risultato trovato per la chiave ~p.~n",[Foglio]);
-    %il foglio esiste
-    [{owner,Foglio,Value}] -> io:format("Risultato trovato: ~p -> ~p~n",[Foglio,Value]),
-                            %controllo che chi voglia condividere sia il proprietario del foglio
-                            case Value == self() of
-                                %non sono il proprietario
-                                false -> error;
-                                %sono il proprietario
-                                true -> io:format("i pid sono uguali"),
-                                       F1 = fun() ->
-                                                    Data = #policy{pid=self(),foglio=Foglio,politica=write},
-                                                    mnesia:write(Data)
-                                            end,
-                                        mnesia:transaction(F1),
-                                        Query = qlc:q(
-                                            [X||X<-mnesia:table(policy),
-                                                X#policy.pid =:= Proc,
-                                                X#policy.foglio =:= Foglio ]
-                                            ),
-                                        F2 = fun()->
-                                            qlc:e(Query)
-                                                       % mnesia:read({policy,Proc})
-                                            end,
-                                        %leggo se il pid e il foglio sono già presenti nella tabella
-                                        {atomic,Result1} = mnesia:transaction(F2),
-                                        case Result1 of
-                                            %tabella "vuota" quindi posso scrivere
-                                            [] -> io:format("Nessun risultato trovato quindi posso scrivere"),
-                                                  F3 = fun()->
-                                                              Data = #policy{pid=Proc,foglio=Foglio,politica=Ap},
-                                                              mnesia:write(Data)
-                                                        end,
-                                                  mnesia:transaction(F3);
-                                            %elemento già scritto quindi devo prima eliminarlo e poi risalvarlo
-                                            [{policy,PidTrovato,FoglioTrovato,PolicyTrovato}] ->io:format("Risultato trovato: ~p -> ~p ~p ~n",[PidTrovato,FoglioTrovato,PolicyTrovato]),
-                                                                                                F4 = fun() ->
-                                                                                                             mnesia:delete_object({policy,PidTrovato,FoglioTrovato,PolicyTrovato})
-                                                                                                     end,
-                                                                                                mnesia:transaction(F4),
-                                                                                                %scrivere nella tabella le policy
-                                                                                                F3 = fun()->
-                                                                                                            Data = #policy{pid=Proc,foglio=Foglio,politica=Ap},
-                                                                                                            mnesia:write(Data)
-                                                                                                     end,
-                                                                                                mnesia:transaction(F3)
-                                        end
-                            end             
-end
+share(Foglio, AccessPolicies)->
+    %AccessPolicies = {Proc,AP}
+    %Proc = Pid
+    %AP = read | write
+    %controllo che share la chiami solo il proprietario della tabella
+    {Proc, Ap} = AccessPolicies,
+    F = fun() ->
+        mnesia:read({owner,Foglio}) 
+        end,
+    {atomic, Result} = mnesia:transaction(F),
+    case Result of
+        %il foglio non esiste
+        [] ->  io:format("Nessun risultato trovato per la chiave ~p.~n",[Foglio]);
+        %il foglio esiste
+        [{owner, Foglio, Value}] -> 
+            io:format("Risultato trovato: ~p -> ~p~n",[Foglio, Value]),
+            %controllo che chi voglia condividere sia il proprietario del foglio
+            case Value == self() of
+                %non sono il proprietario
+                false -> error;
+                %sono il proprietario
+                true -> 
+                    io:format("i pid sono uguali"),
+                    F1 = fun() ->
+                            Data = #policy{pid=self(), foglio=Foglio, politica=write},
+                            mnesia:write(Data)
+                        end,
+                    mnesia:transaction(F1),
+                    Query = qlc:q([X || 
+                        X <- mnesia:table(policy),
+                        X#policy.pid =:= Proc,
+                        X#policy.foglio =:= Foglio 
+                    ]),
+                    F2 = fun() ->
+                        qlc:e(Query)
+                            % mnesia:read({policy,Proc})
+                        end,
+                    %leggo se il pid e il foglio sono già presenti nella tabella
+                    {atomic ,Result1} = mnesia:transaction(F2),
+                    case Result1 of
+                        %tabella "vuota" quindi posso scrivere
+                        [] -> 
+                            io:format("Nessun risultato trovato quindi posso scrivere"),
+                            F3 = fun()->
+                                    Data = #policy{pid=Proc,foglio=Foglio,politica=Ap},
+                                    mnesia:write(Data)
+                                end,
+                            mnesia:transaction(F3);
+                        %elemento già scritto quindi devo prima eliminarlo e poi risalvarlo
+                        [{policy, PidTrovato, FoglioTrovato, PolicyTrovato}] ->
+                            io:format("Risultato trovato: ~p -> ~p ~p ~n", [PidTrovato, FoglioTrovato, PolicyTrovato]),
+                            F4 = fun() ->
+                                    mnesia:delete_object({policy, PidTrovato, FoglioTrovato, PolicyTrovato})
+                                end,
+                            mnesia:transaction(F4),
+                            %scrivere nella tabella le policy
+                            F3 = fun()->
+                                    Data = #policy{pid=Proc, foglio=Foglio, politica=Ap},
+                                    mnesia:write(Data)
+                                end,
+                            mnesia:transaction(F3)
+                    end
+            end             
+    end
 .
