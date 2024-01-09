@@ -9,10 +9,13 @@
 
 -export([
     create_table/0,
+    new/1,
     new/4,
     share/2,
     delete_close_tables/1,
-    create_reader/2
+    create_reader/2,
+    get/4,
+    set/5
 ]).
 
 % definisco i record che utilizzero'
@@ -81,6 +84,8 @@ new(TabName, N, M, K) ->
     popola_owner_table(TabName)
 .
 
+new(TabName) -> spreadsheet:new(TabName, 10, 10, 10).
+
 %DA TENERE PER IL DEBUG (EVENTUALMENTE TOGLIERE ALLA FINE)
 delete_close_tables(NameList) -> 
     lists:foreach(fun(T) -> mnesia:delete_table(T) end, NameList),
@@ -104,20 +109,21 @@ popola_owner_table(Foglio)->
     mnesia:transaction(F1)
 .
 
-crea_riga(Name, I, J, M) -> {Name, I, J, crea_colonne(M)}.
+crea_riga(Name, I, _J, M) -> 
+    #spreadsheet{table = Name, riga=I, colonne=crea_colonne(M)}.
 
 crea_colonne(M)-> lists:duplicate(M, undef).
 
-popola_foglio(Name, K, N, M) when K > 0, N > 0 ->
+popola_foglio(Name, K, N, M) when K > 1, N > 1, M > 1 ->
     Fila = fun(I) -> 
         lists:map(
-            fun(J) -> 
-                crea_riga(Name, I, J, M) 
+            fun(_J) -> 
+                crea_riga(Name, I, _J, M) 
             end, 
-            lists:seq(0, N-1)
+            lists:seq(1, N)
         )
     end,
-    Matrice = lists:flatmap(Fila, lists:seq(0, K-1)),
+    Matrice = lists:flatmap(Fila, lists:seq(1, K)),
     %Matrice,
     salva_in_mnesia(Name, Matrice)
 .
@@ -130,6 +136,52 @@ salva_in_mnesia(Foglio, Matrice) ->
             end,
             Matrice
         ) 
+    end,
+    mnesia:transaction(F)
+.
+
+get(SpreadSheet, TableIndex, I, J) ->
+    TakeRowQuery = qlc:q(
+        % list comprehension
+        [ X#spreadsheet.colonne ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(SpreadSheet),
+            X#spreadsheet.table == TableIndex,
+            X#spreadsheet.riga == I
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun = fun() -> qlc:e(TakeRowQuery) end,
+    {atomic, [RigaI]} = mnesia:transaction(Fun),
+    lists:nth(J, RigaI)
+.
+
+% AGGIUNGERE I CONTROLLI
+set(SpreadSheet, TableIndex, I, J, Value) ->
+    TakeColumnQuery = qlc:q(
+        % list comprehension
+        [ X#spreadsheet.colonne ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(SpreadSheet),
+            X#spreadsheet.table == TableIndex,
+            X#spreadsheet.riga == I
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun = fun() -> qlc:e(TakeColumnQuery) end,
+    {atomic, [RigaI]} = mnesia:transaction(Fun),
+    {L1, L2} = lists:split(J, RigaI),
+    L1WithoutLast = lists:droplast(L1),
+    FinalRow = L1WithoutLast ++ [Value] ++ L2,
+    F = fun() ->
+        Record = {SpreadSheet,
+            TableIndex, 
+            I,
+            % prendo il record di prima e lo elimino
+            RigaI},  
+        mnesia:delete_object(SpreadSheet, Record, write),
+        NewRecord = {SpreadSheet, TableIndex, I, FinalRow},
+        mnesia:write(NewRecord)
     end,
     mnesia:transaction(F)
 .
