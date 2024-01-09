@@ -1,7 +1,7 @@
--module(mnesia_csv_writer).
--export([write_mnesia_table_to_csv/2]).
+-module(csv_writer).
+-export([to_csv/2]).
 % Funzione per ottenere il contenuto della tabella Mnesia e scriverlo su un file CSV
-write_mnesia_table_to_csv(TableName, FilePath) ->
+to_csv(TableName, FilePath) ->
     % Apri il file per la scrittura
     {ok, File} = file:open(FilePath, [write]),
     
@@ -22,11 +22,11 @@ write_mnesia_table_to_csv(TableName, FilePath) ->
 records_to_csv(Records) ->
     lists:foldl(fun({Foglio, Table, Riga, Colonna}, Acc) ->
                     FoglioStr = atom_to_list(Foglio),
-                    TableStr = tuple_to_list(Table),
-                    [TableInt|_] = TableStr,
-                    RigaStr = tuple_to_list(Riga),
-                    [RigaInt|_] = RigaStr,
+                    TableStr = integer_to_list(Table),
+                    
+                    RigaStr = integer_to_list(Riga),
+                    
                     ColonnaStr = lists:flatten(io_lib:format("~p", [Colonna])),
-                    RowStr = FoglioStr ++ "," ++ integer_to_list(TableInt) ++ "," ++ integer_to_list(RigaInt) ++ "," ++ ColonnaStr ++ "\n",
+                    RowStr = FoglioStr ++ "," ++ TableStr ++ "," ++ RigaStr ++ "," ++ ColonnaStr ++ "\n",
                     Acc ++ RowStr
                 end, "Foglio,Tabella,Riga,Colonna\n", Records).
