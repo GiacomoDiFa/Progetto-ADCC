@@ -75,7 +75,7 @@ new(TabName, N, M, K) ->
         {attributes, SpreadsheetFields},
         {disc_copies, NodeList},
         {type, bag},
-        {access_mode, read_write}
+        {index, [#spreadsheet.riga]}
     ]),
     %popolo il foglio con k tabelle di n righe e m colonne
     popola_foglio(TabName, K, N, M),
@@ -139,8 +139,6 @@ salva_in_mnesia(Foglio, Matrice) ->
     end,
     mnesia:transaction(F)
 .
-
-
 
 share(Foglio, AccessPolicies)->
     %AccessPolicies = {Proc,AP}
