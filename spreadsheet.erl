@@ -9,7 +9,9 @@
 
 -export([
     new/4,
-    share/2
+    share/2,
+    delete_close_tables/1,
+    create_reader/2
 ]).
 
 % definisco i record che utilizzero'
@@ -55,16 +57,32 @@ new(Name, N, M, K) ->
     popola_owner_table(Name)
 .
 
-%MAGARI FARE CONTROLLO ERRORI SU TRANSAZIONI MNESIA
-popola_owner_table(Name)->
-    F = fun()->
-        Data = #owner{foglio=Name, pid=self()},
-        mnesia:write(Data)
-    end,
-    mnesia:transaction(F)
+%DA TENERE PER IL DEBUG (EVENTUALMENTE TOGLIERE ALLA FINE)
+delete_close_tables(NameList) -> 
+    lists:foreach(fun(T) -> mnesia:delete_table(T) end, NameList),
+    mnesia:delete_table(owner),
+    mnesia:delete_table(policy),
+    mnesia:stop()
 .
 
-crea_riga(Name, I, J, M) -> {Name, {I}, {J}, {crea_colonne(M)}}.
+%MAGARI FARE CONTROLLO ERRORI SU TRANSAZIONI MNESIA
+popola_owner_table(Foglio)->
+    F = fun()->
+        Data = #owner{foglio=Foglio, pid=self()},
+        mnesia:write(Data)
+    end,
+    mnesia:transaction(F),
+    % aggiorno le policy
+    F1 = fun() ->
+            Data = #policy{pid=self(), foglio=Foglio, politica=write},
+            mnesia:write(Data)
+        end,
+    mnesia:transaction(F1)
+.
+
+crea_riga(Name, I, J, M) -> {Name, I, J, crea_colonne(M)}.
+
+crea_colonne(M)-> lists:duplicate(M, undef).
 
 popola_foglio(Name, K, N, M) when K > 0, N > 0 ->
     Fila = fun(I) -> 
@@ -80,13 +98,11 @@ popola_foglio(Name, K, N, M) when K > 0, N > 0 ->
     salva_in_mnesia(Name, Matrice)
 .
 
-crea_colonne(M)-> lists:duplicate(M, 0).
-
-salva_in_mnesia(Name, Matrice) ->
+salva_in_mnesia(Foglio, Matrice) ->
     F = fun() ->
         lists:foreach(
             fun(Elem)-> 
-                mnesia:write(Name, Elem, write)
+                mnesia:write(Foglio, Elem, write)
             end,
             Matrice
         ) 
@@ -103,27 +119,24 @@ share(Foglio, AccessPolicies)->
     %controllo che share la chiami solo il proprietario della tabella
     {Proc, Ap} = AccessPolicies,
     F = fun() ->
-        mnesia:read({owner,Foglio}) 
+        mnesia:read({owner, Foglio}) 
         end,
     {atomic, Result} = mnesia:transaction(F),
     case Result of
         %il foglio non esiste
-        [] ->  io:format("Nessun risultato trovato per la chiave ~p.~n",[Foglio]);
+        [] ->  
+            io:format("Nessun risultato trovato per la chiave ~p.~n",[Foglio]),
+            {error, sheet_not_found};
         %il foglio esiste
         [{owner, Foglio, Value}] -> 
             io:format("Risultato trovato: ~p -> ~p~n",[Foglio, Value]),
             %controllo che chi voglia condividere sia il proprietario del foglio
             case Value == self() of
                 %non sono il proprietario
-                false -> error;
+                false -> {error, not_the_owner};
                 %sono il proprietario
+                % HO GIA I PERMESSI DI SCRITTURA
                 true -> 
-                    io:format("i pid sono uguali"),
-                    F1 = fun() ->
-                            Data = #policy{pid=self(), foglio=Foglio, politica=write},
-                            mnesia:write(Data)
-                        end,
-                    mnesia:transaction(F1),
                     Query = qlc:q([X || 
                         X <- mnesia:table(policy),
                         X#policy.pid =:= Proc,
@@ -140,7 +153,7 @@ share(Foglio, AccessPolicies)->
                         [] -> 
                             io:format("Nessun risultato trovato quindi posso scrivere"),
                             F3 = fun()->
-                                    Data = #policy{pid=Proc,foglio=Foglio,politica=Ap},
+                                    Data = #policy{pid=Proc, foglio=Foglio, politica=Ap},
                                     mnesia:write(Data)
                                 end,
                             mnesia:transaction(F3);
@@ -160,4 +173,19 @@ share(Foglio, AccessPolicies)->
                     end
             end             
     end
+.
+
+%DEBUG
+create_reader(Foglio, Pid) ->
+    spawn(fun() ->
+        receive
+            {start} ->
+                %QUI MANCA IL CONTROLLO DEGLI ACCESSI
+                F = fun() ->
+                    mnesia:read({Foglio, 0}) 
+                end,
+                {atomic, Result} = mnesia:transaction(F),
+                Pid!{read_result, Result}
+        end
+    end)
 .
