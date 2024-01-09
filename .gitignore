@@ -5,3 +5,5 @@
 # ignoro i folder di Mnesia
 /Mnesia.*
 /*/Mnesia.*
+#ignora i file .csv
+*.csv
