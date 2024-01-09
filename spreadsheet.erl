@@ -10,8 +10,6 @@
 -export([
     create_table/0,
     new/4,
-    set_access_mode/2,
-    get_access_mode/1,
     share/2,
     delete_close_tables/1,
     create_reader/2
@@ -82,10 +80,6 @@ new(TabName, N, M, K) ->
     %creo una nuova tabella in cui dico che il nodo è proprietario del foglio (tabella)
     popola_owner_table(TabName)
 .
-
-get_access_mode(TabName) -> mnesia:table_info(TabName, access_mode).
-
-set_access_mode(TabName, AccessMode) -> mnesia:change_table_access_mode(TabName, AccessMode).
 
 %DA TENERE PER IL DEBUG (EVENTUALMENTE TOGLIERE ALLA FINE)
 delete_close_tables(NameList) -> 
