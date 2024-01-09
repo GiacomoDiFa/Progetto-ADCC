@@ -75,7 +75,7 @@ new(TabName, N, M, K) ->
         {attributes, SpreadsheetFields},
         {disc_copies, NodeList},
         {type, bag},
-        {access_mode, read_only}
+        {access_mode, read_write}
     ]),
     %popolo il foglio con k tabelle di n righe e m colonne
     popola_foglio(TabName, K, N, M),
