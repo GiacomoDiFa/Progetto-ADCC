@@ -8,7 +8,10 @@
 -include_lib("stdlib/include/qlc.hrl").
 
 -export([
+    create_table/0,
     new/4,
+    set_access_mode/2,
+    get_access_mode/1,
     share/2,
     delete_close_tables/1,
     create_reader/2
@@ -24,38 +27,65 @@
 
 %PRIMA FARLO IN LOCALE POI NEL DISTRIBUITO (FILE SHOP_DB MATTE)
 %FARE CONTROLLO ERRORI SE UNO DIGITA MALE O SE QUALCOSA NON VA A BUON FINE ETC
-new(Name, N, M, K) ->
+create_table() ->
     % creo il DB solo in locale -> node()
-    Nodelist = [node()],
-    mnesia:create_schema(Nodelist),
+    NodeList = [node()],
+    mnesia:create_schema(NodeList),
     % faccio partire Mnesia
     mnesia:start(),
     % creo lo schema delle due tablelle del DB coi campi che prendo dai records
-    SpreadsheetFields = record_info(fields, spreadsheet),
+    %SpreadsheetFields = record_info(fields, spreadsheet),
     OwnerFields = record_info(fields, owner),
     PolicyFields = record_info(fields, policy),
     % NB il nome della tabella e' == al nome dei records che essa ospita
     % specifico i parametri opzionali per avere una copia del DB
     % su disco e in RAM anche nei nodi distribuiti
-    mnesia:create_table(Name, [
-        {attributes, SpreadsheetFields},
-        {disc_copies, Nodelist},
-        {type, bag}
-    ]),
+    %mnesia:create_table(Name, [
+    %    {attributes, SpreadsheetFields},
+    %    {disc_copies, NodeList},
+    %    {type, bag}
+    %]),
     mnesia:create_table(owner, [
         {attributes, OwnerFields},
-        {disc_copies, Nodelist}
+        {disc_copies, NodeList}
     ]),
     mnesia:create_table(policy, [
         {attributes, PolicyFields},
-        {disc_copies, Nodelist},
+        {disc_copies, NodeList},
         {type, bag}
+    ])
+    %popolo il foglio con k tabelle di n righe e m colonne
+    %popola_foglio(Name, K, N, M),
+    %creo una nuova tabella in cui dico che il nodo è proprietario del foglio (tabella)
+    %popola_owner_table(Name)
+.
+
+% devo aver gia' creato lo schema
+new(TabName, N, M, K) ->
+    % creo lo schema delle due tablelle del DB coi campi che prendo dai records
+    SpreadsheetFields = record_info(fields, spreadsheet),
+    %OwnerFields = record_info(fields, owner),
+    %PolicyFields = record_info(fields, policy),
+    
+    % NB il nome della tabella e' == al nome dei records che essa ospita
+    % specifico i parametri opzionali per avere una copia del DB
+    % su disco e in RAM anche nei nodi distribuiti
+    NodeList = mnesia:table_info(owner, disc_copies),
+    mnesia:create_table(TabName, [
+        {attributes, SpreadsheetFields},
+        {disc_copies, NodeList},
+        {type, bag},
+        {index, [#spreadsheet.riga]}
     ]),
     %popolo il foglio con k tabelle di n righe e m colonne
-    popola_foglio(Name, K, N, M),
+    popola_foglio(TabName, K, N, M),
     %creo una nuova tabella in cui dico che il nodo è proprietario del foglio (tabella)
-    popola_owner_table(Name)
+    popola_owner_table(TabName)
 .
+
+get_access_mode(TabName) -> mnesia:table_info(TabName, access_mode).
+
+set_access_mode(TabName, AccessMode) -> mnesia:change_table_access_mode(TabName, AccessMode).
 
 %DA TENERE PER IL DEBUG (EVENTUALMENTE TOGLIERE ALLA FINE)
 delete_close_tables(NameList) -> 
@@ -109,8 +139,6 @@ salva_in_mnesia(Foglio, Matrice) ->
     end,
     mnesia:transaction(F)
 .
-
-
 
 share(Foglio, AccessPolicies)->
     %AccessPolicies = {Proc,AP}
