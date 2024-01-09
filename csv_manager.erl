@@ -35,19 +35,22 @@ remove_extension(FileName) ->
     Reverse = string:reverse(FileName),
     %E fatto brutto qui perchè c'è max 100, se mi viene in mente un altro modo ci rimetto mano
     SubString = string:sub_string(Reverse,5,100),
-    Reverse2 = string:reverse(SubString),
-    Reverse2.
+    Final = string:reverse(SubString),
+    Final.
 
 
 from_csv(FilePath) ->
     SpreadsheetFields = record_info(fields, spreadsheet),
     TableName = remove_extension(FilePath),
+    %io:format("TableName: ~p~n", [TableName]),
     NodeList = [node()],
-    mnesia:create_table(TableName, [
+    mnesia:create_schema(NodeList),
+    mnesia:create_table(list_to_atom(TableName), [
         {attributes, SpreadsheetFields},
         {disc_copies, NodeList},
         {type, bag}
     ]),
+    %io:format("~p",[Prova3]),
     mnesia:wait_for_tables([TableName],5000),
     {ok, File} = file:open(FilePath, [read]),
     read_lines(File),
@@ -72,15 +75,15 @@ process_line(Line) ->
         Result 
             end,
     Prova = Parse(NewLine),
-    io:format("~p",[Prova]),
+    %io:format("~p",[Prova]),
     [Col1|Tail1] = Prova,
     [Col2|Tail2] = Tail1,
     [Col3|Tail3] = Tail2,
     [Col4|_] = Tail3,
     F = fun() ->
-        Data = #spreadsheet{table=Col2,riga=Col3,colonne=Col4},
+        Data = {Col1,Col2,Col3,Col4},
                 mnesia:write(Data)     
     end,
-    mnesia:transaction(F),
-    io:format("Col1:~p Col2:~p Col3:~p Col4:~p~n",[Col1,Col2,Col3,Col4])
+    mnesia:transaction(F)
+    %io:format("Col1:~p Col2:~p Col3:~p Col4:~p~n",[Col1,Col2,Col3,Col4])
 .
