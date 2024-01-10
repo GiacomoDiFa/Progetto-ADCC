@@ -2,9 +2,10 @@
 -export([to_csv/2,from_csv/1]).
 -record(spreadsheet, {table, riga, colonne}).
 % Funzione per ottenere il contenuto della tabella Mnesia e scriverlo su un file CSV
-to_csv(TableName, FilePath) ->
+% FileName := "nome_tabella.csv"
+to_csv(TableName, FileName) ->
     % Apri il file per la scrittura
-    {ok, File} = file:open(FilePath, [write]),
+    {ok, File} = file:open(FileName, [write]),
     
     % Estrai i dati dalla tabella Mnesia
     Records = ets:tab2list(TableName),
