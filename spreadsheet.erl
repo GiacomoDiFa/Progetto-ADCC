@@ -298,11 +298,11 @@ share(Foglio, AccessPolicies)->
                                     Result1 = mnesia:transaction(F2),
                                     case Result1 of
                                         {aborted, Reason1} -> {error, Reason1};
-                                        {atomic, Result1} ->
-                                            case Result1 of
+                                        {atomic, Res1} ->
+                                            case Res1 of
                                                 %tabella "vuota" quindi posso scrivere
                                                 [] -> 
-                                                    io:format("Nessun risultato trovato quindi posso scrivere"),
+                                                    %io:format("Nessun risultato trovato quindi posso scrivere"),
                                                     F3 = fun()->
                                                             Data = #policy{pid=Proc, foglio=Foglio, politica=Ap},
                                                             mnesia:write(Data)
@@ -321,22 +321,20 @@ share(Foglio, AccessPolicies)->
                                                     Result4 = mnesia:transaction(F4),
                                                     case Result4 of
                                                         {aborted, Reason4} -> {error, Reason4};
-                                                        {atomic, _} -> ok
-                                                    end,
-                                                    %scrivere nella tabella le policy
-                                                    F3 = fun()->
-                                                            Data = #policy{pid=Proc, foglio=Foglio, politica=Ap},
-                                                            mnesia:write(Data)
-                                                        end,
-                                                    Result3 = mnesia:transaction(F3),
-                                                    case Result3 of
-                                                        {aborted, Reason3} -> {error, Reason3};
-                                                        {atomic, _} -> ok;
-                                                        Msg3 -> {error, {unknown, Msg3}}
+                                                        {atomic, _} -> 
+                                                            %scrivere nella tabella le policy
+                                                            F3 = fun()->
+                                                                    Data = #policy{pid=Proc, foglio=Foglio, politica=Ap},
+                                                                    mnesia:write(Data)
+                                                                end,
+                                                            Result3 = mnesia:transaction(F3),
+                                                            case Result3 of
+                                                                {aborted, Reason3} -> {error, Reason3};
+                                                                {atomic, _} -> ok
+                                                            end
                                                     end;
                                                 Msg -> {error, {unknown, Msg}}
-                                            end;
-                                        Msg1 -> {error, {unknown, Msg1}} 
+                                            end 
                                     end
                             end;
                         Msg2 -> {error, {unknown, Msg2}} 
