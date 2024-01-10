@@ -13,7 +13,8 @@
     new/4,
     share/2,
     get/4,
-    set/5
+    set/5,
+    info/1
 ]).
 
 % definisco i record che utilizzero'
@@ -342,3 +343,85 @@ share(Foglio, AccessPolicies)->
             end
     end
 .
+
+info(Foglio) ->
+    % controllo che Foglio sia gia' presente
+    mnesia:start(),
+    TabelleLocali = mnesia:system_info(tables),
+    case lists:member(Foglio, TabelleLocali) of
+        false -> {error, not_exist};
+        true ->
+            QueryScrittura = qlc:q([X#policy.pid || 
+                X <- mnesia:table(policy),
+                X#policy.foglio == Foglio,
+                X#policy.politica == write]),
+            FScrittura = fun() -> qlc:e(QueryScrittura) end,
+            
+            ResultScrittura = mnesia:transaction(FScrittura),
+            case ResultLettura of
+                {aborted, Reason} -> {error, Reason};
+                {atomic, ResLettura} ->
+                    case ResLettura of
+                        %tabella "vuota" quindi posso scrivere
+                        [] -> {error, policy_table_empty};
+                        [{policy, PidTrovato, FoglioTrovato, PolicyTrovata}] ->
+                            case PolicyTrovata == read of
+                                true -> ListaPermessiLettura ++ [{PidTrovato, FoglioTrovato}];
+                                false ->
+                                    case PolicyTrovata == write of
+                                        true -> ListaPermessiScrittura ++ [{PidTrovato, FoglioTrovato}];
+                                        false -> {error, wrong_policy_format}
+                                    end
+                            end;
+                        Msg -> {error, {unknown, Msg}}
+                    end
+            end,
+            ListaPermessiLettura = mnesia:foldl(
+                fun(Elem, Acc) ->
+                    {policy, PidTrovato, FoglioTrovato, PolicyTrovata} = Elem,
+                    {PidTrovato, PolicyTrovata}    
+                end,
+                [],
+                policy
+            ),
+            ListaPermessi = {policy_list, 
+                {read, ListaPermessiLettura}, 
+                {write, ListaPermessiScrittura}
+            },
+            
+            
+    end
+.
+
+celle_per_foglio(Foglio) ->
+    % numero di celle per il foglio corrente
+    Fun = mnesia:foldl(
+        fun(_Elem, Acc) ->
+            Acc + 1    
+        end,
+        0,
+        Foglio
+    ),
+    Result = mnesia:transaction(Fun),
+    case Result of
+        {aborted, Reason} -> {error, Reason};
+        {atomic, Res} -> Res
+    end
+.
+
+lista_lettura(Foglio) ->
+    % ottengo i permessi di lettura e scrittura
+    QueryLettura = qlc:q([X#policy.pid || 
+        X <- mnesia:table(policy),
+        X#policy.foglio == Foglio,
+        X#policy.politica == read]),
+    FLettura = fun() -> qlc:e(QueryLettura) end,
+    ResultLettura = mnesia:transaction(FLettura),
+    case ResultLettura of
+        {aborted, Reason} -> {error, Reason};
+        {atomic, ResLettura} ->
+            case ResLettura of
+                %tabella "vuota" quindi posso scrivere
+                [] -> {error, policy_table_empty};
+                [{policy, PidTrovato, FoglioTrovato, PolicyTrovata}]
+    
