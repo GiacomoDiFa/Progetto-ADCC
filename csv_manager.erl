@@ -28,10 +28,6 @@ records_to_csv(Records) ->
         end, Records).
 
 
-
-
-
-
 remove_extension(FileName) ->
     Reverse = string:reverse(FileName),
     %E fatto brutto qui perchè c'è max 100, se mi viene in mente un altro modo ci rimetto mano
@@ -43,19 +39,21 @@ remove_extension(FileName) ->
 from_csv(FilePath) ->
     SpreadsheetFields = record_info(fields, spreadsheet),
     TableName = remove_extension(FilePath),
-    %io:format("TableName: ~p~n", [TableName]),
-    NodeList = [node()],
-    mnesia:create_schema(NodeList),
-    mnesia:create_table(list_to_atom(TableName), [
-        {attributes, SpreadsheetFields},
-        {disc_copies, NodeList},
-        {type, bag}
-    ]),
-    %io:format("~p",[Prova3]),
-    mnesia:wait_for_tables([TableName],5000),
-    {ok, File} = file:open(FilePath, [read]),
-    read_lines(File),
-    file:close(File).
+    TabelleLocali = mnesia:system_info(tables),
+    case lists:member(list_to_atom(TableName),TabelleLocali) of
+        true -> {error, table_is_already_in_mnesia};
+        false ->
+            NodeList = [node()],
+            mnesia:create_schema(NodeList),
+            mnesia:create_table(list_to_atom(TableName), [
+                {attributes, SpreadsheetFields},
+                {disc_copies, NodeList},
+                {type, bag}]),
+                {ok, File} = file:open(FilePath, [read]),
+                read_lines(File),
+                file:close(File)
+    end
+.
 
 read_lines(File) ->
     case io:get_line(File, "") of
@@ -86,5 +84,4 @@ process_line(Line) ->
                 mnesia:write(Data)     
     end,
     mnesia:transaction(F)
-    %io:format("Col1:~p Col2:~p Col3:~p Col4:~p~n",[Col1,Col2,Col3,Col4])
 .
