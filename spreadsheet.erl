@@ -6,12 +6,16 @@
 % per fare query complesse
 -include_lib("stdlib/include/qlc.hrl").
 
+% importo flush() per il timeout
+-import(c, [flush/0]).
+
 -export([
     new/1,
     new/4,
     share/2,
     get/4,
     set/5,
+    set/6,
     info/1
 ]).
 
@@ -244,6 +248,48 @@ set(SpreadSheet, TableIndex, I, J, Value) ->
                 Msg1 -> {error, {unknown, Msg1}} 
             end
     end
+.
+
+set(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
+    ValueToRestore = spreadsheet:get(SpreadSheet, TableIndex, I, J),
+    c:flush(),
+    MioPid = self(),
+    PidTimer = spawn(fun() ->
+        receive
+            {start} -> MioPid!{result, spreadsheet:set(SpreadSheet, TableIndex, I, J, Value)}
+        end
+    end),
+    % do il permesso di scrittura al processo spawnato
+    AP = {PidTimer, write},
+    share(SpreadSheet, AP),
+    % faccio partire il timer
+    PidTimer!{start},
+    % aspetto il risultato tramite un timer
+    receive
+        {result, Res} -> 
+            Result = restore_permit(PidTimer, SpreadSheet),
+            case Result of
+                {aborted, Reason} -> {error, Reason};
+                {atomic, _} -> Res
+            end
+    after Timeout ->
+        Result = restore_permit(PidTimer, SpreadSheet),
+        % rimetto le cose come prima
+        spreadsheet:set(SpreadSheet, TableIndex, I, J, ValueToRestore),
+        case Result of
+            {aborted, Reason} -> {error, Reason};
+            {atomic, _} -> timeout
+        end
+    end
+.
+
+restore_permit(PidTimer, SpreadSheet) ->
+    % elimino il permesso al processo spawnato
+    F = fun()->
+        Data = #policy{pid=PidTimer, foglio=SpreadSheet},
+        mnesia:delete_object(Data)
+    end,
+    mnesia:transaction(F)
 .
 
 share(Foglio, AccessPolicies)->
