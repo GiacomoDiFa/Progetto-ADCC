@@ -41,7 +41,7 @@ new(TabName, N, M, K) ->
             % NB il nome della tabella e' == al nome dei records che essa ospita
             % specifico i parametri opzionali per avere una copia del DB
             % su disco e in RAM anche nei nodi distribuiti
-            NodeList = [node()], %mnesia:table_info(owner, disc_copies),
+            NodeList = [node()]++nodes(), %mnesia:table_info(owner, disc_copies),
             mnesia:create_table(TabName, [
                 {attributes, SpreadsheetFields},
                 {disc_copies, NodeList},
