@@ -16,24 +16,32 @@ delete_close_tables() ->
     mnesia:stop()
 .
 
-spawn_reader(Foglio, Pid) ->
-    spawn(fun() ->
-        receive
+loop_call_test_reader(Foglio,Pid) ->
+    receive
             {start} ->
                 Result = spreadsheet:get(Foglio, 1,1,1),
-                Pid!{read_result, Result};
-            Msg -> {error, Msg}
+                Pid!{read_result, Result}, loop_call_test_reader(Foglio,Pid);
+            {stop} -> Pid!{stop,node()}
         end
+.
+
+spawn_reader(Foglio, Pid) ->
+    spawn(fun() ->
+        loop_call_test_reader(Foglio,Pid)
     end)
+.
+
+loop_call_test_writer(Foglio,Pid) ->
+    receive
+            {start} ->
+                Result = spreadsheet:set(Foglio, 1,1,1, 'WRITE'),
+                Pid!{write_result, Result}, loop_call_test_writer(Foglio,Pid);
+            {stop} -> Pid!{stop,node()}
+        end
 .
 
 spawn_writer(Foglio, Pid) ->
     spawn(fun() ->
-        receive
-            {start} ->
-                Result = spreadsheet:set(Foglio, 1,1,1, 'WRITE'),
-                Pid!{write_result, Result};
-            Msg -> {error, Msg}
-        end
+        loop_call_test_writer(Foglio,Pid)
     end)
 .
