@@ -133,7 +133,11 @@ salva_in_mnesia(Foglio, Matrice) ->
             Matrice
         ) 
     end,
-    mnesia:transaction(F)
+    Result = mnesia:transaction(F),
+    case Result of
+        {aborted,Reason} -> {error,Reason};
+        {atomic,Res} -> Res
+    end
 .
 
 % SERVE il controllo della policy ANCHE in lettura
