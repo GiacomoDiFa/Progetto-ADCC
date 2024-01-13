@@ -8,6 +8,7 @@
 ]).
 
 delete_close_tables() ->
+    mnesia:start(),
     TabelleLocali = mnesia:system_info(tables), 
     lists:foreach(fun(T) -> mnesia:delete_table(T) end, TabelleLocali),
     %mnesia:delete_table(owner),
