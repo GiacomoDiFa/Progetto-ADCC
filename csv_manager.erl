@@ -4,21 +4,25 @@
 % Funzione per ottenere il contenuto della tabella Mnesia e scriverlo su un file CSV
 % FileName := "nome_tabella.csv"
 to_csv(TableName, FileName) ->
-    % Apri il file per la scrittura
-    {ok, File} = file:open(FileName, [write]),
-    
-    % Estrai i dati dalla tabella Mnesia
-    Records = ets:tab2list(TableName),
-    %io:format("questo è il mio record: ~p",[Records]),
-    
-    % Converti i dati in formato CSV
-    CsvContent = records_to_csv(Records),
-    
-    % Scrivi il CSV nel file
-    file:write(File, CsvContent),
-    
-    % Chiudi il file
-    file:close(File).
+    %Controllo che table name sia nel mio mnesia
+    mnesia:start(),
+    TabelleLocali = mnesia:system_info(tables),
+    case lists:member(TableName, TabelleLocali) of
+        false -> {error, invalid_name_of_table};
+        true ->
+            % Apri il file per la scrittura
+            {ok, File} = file:open(FileName, [write]),
+            % Estrai i dati dalla tabella Mnesia
+            Records = ets:tab2list(TableName),
+            %io:format("questo è il mio record: ~p",[Records]),
+            % Converti i dati in formato CSV
+            CsvContent = records_to_csv(Records),
+            % Scrivi il CSV nel file
+            file:write(File, CsvContent),
+            % Chiudi il file
+            file:close(File)
+    end
+.
 
 % Funzione per convertire i record in formato CSV
 records_to_csv(Records) ->
@@ -35,7 +39,9 @@ remove_extension(FileName) ->
     Final = string:reverse(SubString),
     Final.
 
-
+%QUA SI POTREBBE AGGIUNGERE IL FATTO DI CONTROLLARE LA PRIMA PAROLA DEL FILE CSV CON UN NOME DELLE TABELLE PER L'UTENTE
+%STUPIDO, PERCHè ALTRIMENTI QUESTO CODICE SE HO UN FILE DEL FOGLIO1 CHIAMATO CIAO.CSV MI CREA UNA TABELLA CHIAMATA CIAO VUOTA
+%AVEVO PROVATO A FARLO MA NON ERO RIUSCITO, è DA RIPROVARCI
 from_csv(FilePath) ->
     SpreadsheetFields = record_info(fields, spreadsheet),
     TableName = remove_extension(FilePath),
@@ -83,5 +89,9 @@ process_line(Line) ->
         Data = {Col1,Col2,Col3,Col4},
                 mnesia:write(Data)     
     end,
-    mnesia:transaction(F)
+    Result = mnesia:transaction(F),
+    case Result of
+        {aborted,Reason} -> {error,Reason};
+        {atomic,Res} -> Res
+    end
 .
