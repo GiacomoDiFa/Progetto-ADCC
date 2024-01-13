@@ -2,15 +2,17 @@
 -module(debug).
 
 -export([
-    delete_close_tables/1,
+    delete_close_tables/0,
     spawn_reader/2,
     spawn_writer/2
 ]).
 
-delete_close_tables(NameList) -> 
-    lists:foreach(fun(T) -> mnesia:delete_table(T) end, NameList),
-    mnesia:delete_table(owner),
-    mnesia:delete_table(policy),
+delete_close_tables() ->
+    TabelleLocali = mnesia:system_info(tables), 
+    lists:foreach(fun(T) -> mnesia:delete_table(T) end, TabelleLocali),
+    %mnesia:delete_table(owner),
+    %mnesia:delete_table(policy),
+    %mnesia:delete_table(format),
     mnesia:stop()
 .
 
