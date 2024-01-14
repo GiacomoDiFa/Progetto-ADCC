@@ -8,7 +8,9 @@
     start/0,
     start_distrib/1,
     stop/0,
-    stop_distrib/1
+    stop_distrib/1,
+    save_name/1,
+    lookup_name/1
 ]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -180,4 +182,12 @@ stop_distrib(RemoteNodeList) ->
     ),
     % faccio terminare Mnesia in locale
     mnesia:stop()
+.
+
+save_name(Name)->
+    global:register_name(Name,self())
+.
+
+lookup_name(Name)->
+    global:whereis_name(Name)
 .
