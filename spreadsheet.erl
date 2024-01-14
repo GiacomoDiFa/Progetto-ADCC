@@ -27,6 +27,7 @@
 %record che rappresenta il formato dei fogli (BAG)
 -record(format, {foglio, tab_index, nrighe, ncolonne}).
 
+% FARE CONTROLLO ERRORI PER LA POPOLA...
 % devo aver gia' creato lo schema
 new(TabName, N, M, K) ->
     % controllo che TabName non sia gia' presente
