@@ -6,14 +6,12 @@
 % per fare query complesse
 -include_lib("stdlib/include/qlc.hrl").
 
-% importo flush() per il timeout
--import(c, [flush/0]).
-
 -export([
     new/1,
     new/4,
     share/2,
     get/4,
+    get/5,
     set/5,
     set/6,
     info/1
@@ -160,31 +158,101 @@ get(SpreadSheet, TableIndex, I, J) ->
                     Condition = (Policy == read) or (Policy == write), 
                     case Condition of
                         false -> {error, not_allowed};
-                        true ->
-                            TakeRowQuery = qlc:q(
-                                % list comprehension
-                                [ X#spreadsheet.colonne ||
-                                    % seleziona tutte righe tabella shop
-                                    X <- mnesia:table(SpreadSheet),
-                                    X#spreadsheet.table == TableIndex,
-                                    X#spreadsheet.riga == I
-                                ]
-                            ),
-                            % invoco la query dentro una transazione e ritorno il risultato
-                            Fun1 = fun() -> qlc:e(TakeRowQuery) end,
-                            Result1 = mnesia:transaction(Fun1),
-                            case Result1 of
-                                {aborted, Reason1} -> {error, Reason1};
-                                {atomic, []} -> {error, not_found};
-                                {atomic, [RigaI]} -> lists:nth(J, RigaI);
-                                Msg -> {error, {unknown, Msg}}
-                            end
-                    end
+                        true -> get_value(SpreadSheet, TableIndex, I, J)
+                    end;
+                Msg -> {error, {unknown, Msg}}
             end
     end
 .
 
-% AGGIUNGERE I CONTROLLI
+% NON ESPORTATA ALL'ESTERNO
+get_value(SpreadSheet, TableIndex, I, J) ->
+    TakeRowQuery = qlc:q(
+        % list comprehension
+        [ X#spreadsheet.colonne ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(SpreadSheet),
+            X#spreadsheet.table == TableIndex,
+            X#spreadsheet.riga == I
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun1 = fun() -> qlc:e(TakeRowQuery) end,
+    Result1 = mnesia:transaction(Fun1),
+    case Result1 of
+        {aborted, Reason1} -> {error, Reason1};
+        {atomic, []} -> {error, not_found};
+        {atomic, [RigaI]} -> lists:nth(J, RigaI);
+        Msg -> {error, {unknown, Msg}}
+    end
+.
+
+% GET TIMEOUT
+get(SpreadSheet, TableIndex, I, J, Timeout) ->
+    MioPid = self(),
+    PolicyQuery = qlc:q(
+        % list comprehension
+        [ X#policy.politica ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(policy),
+            X#policy.pid == MioPid,
+            X#policy.foglio == SpreadSheet
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun = fun() -> qlc:e(PolicyQuery) end,
+    Result = mnesia:transaction(Fun),
+    %io:format(">>>~p<<<", [Result]),
+    case Result of
+        {aborted, Reason} -> {error, Reason};
+        {atomic, Res} ->
+            case Res of
+                [] -> {error, not_allowed};
+                [Policy] ->
+                    % solo se il file e' condiviso Policy e' popolata
+                    Condition = (Policy == read) or (Policy == write), 
+                    case Condition of
+                        false -> {error, not_allowed};
+                        % GET TIMEOUT
+                        true -> get_timeout(SpreadSheet, TableIndex, I, J, Timeout)
+                    end;
+                Msg -> {error, {unknown, Msg}}
+            end
+    end
+.
+
+% NON ESPORTATA ALL'ESTERNO
+get_timeout(SpreadSheet, TableIndex, I, J, Timeout) ->
+    mia_flush(),
+    MioPid = self(),
+    % creo un processo timer
+    spawn(fun() ->
+        receive after Timeout -> MioPid!{timeout} end
+    end),
+    % creo un processo getter
+    spawn(fun() ->
+        MioPid!{result, get_value(SpreadSheet, TableIndex, I, J)}
+    end),
+    receive
+        {result, Res} -> Res;
+        {timeout} -> timeout
+    after 10000 -> {error, no_message_received}
+    end
+.
+
+% NB GET E SET TIMEOUT
+% implemento mia flush
+mia_flush() ->
+    receive
+        % consuma il pattern e va in loop
+        _AnyPattern -> mia_flush()
+    after
+        % se non ha messaggi nella coda 
+        % restituisce subito (0 sec) ok
+        0 -> ok
+    end
+.
+
 set(SpreadSheet, TableIndex, I, J, Value) ->
     MioPid = self(),
     PolicyQuery = qlc:q(
@@ -208,88 +276,113 @@ set(SpreadSheet, TableIndex, I, J, Value) ->
                 [Policy] -> 
                     case Policy == write of
                         false -> {error, not_allowed};
-                        true ->
-                            TakeColumnQuery = qlc:q(
-                                % list comprehension
-                                [ X#spreadsheet.colonne ||
-                                    % seleziona tutte righe tabella shop
-                                    X <- mnesia:table(SpreadSheet),
-                                    X#spreadsheet.table == TableIndex,
-                                    X#spreadsheet.riga == I
-                                ]
-                            ),
-                            % invoco la query dentro una transazione e ritorno il risultato
-                            Fun1 = fun() -> qlc:e(TakeColumnQuery) end,
-                            Result1 = mnesia:transaction(Fun1),
-                            case Result1 of
-                                {aborted, Reason1} -> {error, Reason1};
-                                {atomic, Res1} ->
-                                    case Res1 of
-                                        [] -> {error, not_found};
-                                        [RigaI] -> 
-                                            {L1, L2} = lists:split(J, RigaI),
-                                            L1WithoutLast = lists:droplast(L1),
-                                            FinalRow = L1WithoutLast ++ [Value] ++ L2,
-                                            F2 = fun() ->
-                                                Record = {SpreadSheet,
-                                                    TableIndex, 
-                                                    I,
-                                                    % prendo il record di prima e lo elimino
-                                                    RigaI},  
-                                                mnesia:delete_object(Record),
-                                                NewRecord = {SpreadSheet, TableIndex, I, FinalRow},
-                                                mnesia:write(NewRecord)
-                                            end,
-                                            {atomic, ok} = mnesia:transaction(F2), ok;
-                                        Msg -> {error, {unknown, Msg}}
-                                    end
-                            end
+                        true -> set_value(SpreadSheet, TableIndex, I, J, Value)
                     end;
                 Msg1 -> {error, {unknown, Msg1}} 
             end
     end
 .
 
-set(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
-    ValueToRestore = spreadsheet:get(SpreadSheet, TableIndex, I, J),
-    c:flush(),
-    MioPid = self(),
-    PidTimer = spawn(fun() ->
-        receive
-            {start} -> MioPid!{result, spreadsheet:set(SpreadSheet, TableIndex, I, J, Value)}
-        end
-    end),
-    % do il permesso di scrittura al processo spawnato
-    AP = {PidTimer, write},
-    share(SpreadSheet, AP),
-    % faccio partire il timer
-    PidTimer!{start},
-    % aspetto il risultato tramite un timer
-    receive
-        {result, Res} -> 
-            Result = restore_permit(PidTimer, SpreadSheet),
-            case Result of
-                {aborted, Reason} -> {error, Reason};
-                {atomic, _} -> Res
+% NON ESPORTATA ALL'ESTERNO
+set_value(SpreadSheet, TableIndex, I, J, Value) ->
+    TakeColumnQuery = qlc:q(
+        % list comprehension
+        [ X#spreadsheet.colonne ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(SpreadSheet),
+            X#spreadsheet.table == TableIndex,
+            X#spreadsheet.riga == I
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun1 = fun() -> qlc:e(TakeColumnQuery) end,
+    Result1 = mnesia:transaction(Fun1),
+    case Result1 of
+        {aborted, Reason1} -> {error, Reason1};
+        {atomic, Res1} ->
+            case Res1 of
+                [] -> {error, not_found};
+                [RigaI] -> 
+                    {L1, L2} = lists:split(J, RigaI),
+                    L1WithoutLast = lists:droplast(L1),
+                    FinalRow = L1WithoutLast ++ [Value] ++ L2,
+                    F2 = fun() ->
+                        Record = {SpreadSheet,
+                            TableIndex, 
+                            I,
+                            % prendo il record di prima e lo elimino
+                            RigaI},  
+                        mnesia:delete_object(Record),
+                        NewRecord = {SpreadSheet, TableIndex, I, FinalRow},
+                        mnesia:write(NewRecord)
+                    end,
+                    {atomic, ok} = mnesia:transaction(F2), ok;
+                Msg -> {error, {unknown, Msg}}
             end
-    after Timeout ->
-        Result = restore_permit(PidTimer, SpreadSheet),
-        % rimetto le cose come prima
-        spreadsheet:set(SpreadSheet, TableIndex, I, J, ValueToRestore),
-        case Result of
-            {aborted, Reason} -> {error, Reason};
-            {atomic, _} -> timeout
-        end
     end
 .
 
-restore_permit(PidTimer, SpreadSheet) ->
-    % elimino il permesso al processo spawnato
-    F = fun()->
-        Data = #policy{pid=PidTimer, foglio=SpreadSheet},
-        mnesia:delete_object(Data)
-    end,
-    mnesia:transaction(F)
+% SET TIMEOUT
+set(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
+    MioPid = self(),
+    PolicyQuery = qlc:q(
+        % list comprehension
+        [ X#policy.politica ||
+            % seleziona tutte righe tabella shop
+            X <- mnesia:table(policy),
+            X#policy.pid == MioPid,
+            X#policy.foglio == SpreadSheet
+        ]
+    ),
+    % invoco la query dentro una transazione e ritorno il risultato
+    Fun = fun() -> qlc:e(PolicyQuery) end,
+    Result = mnesia:transaction(Fun),
+    %io:format(">>>~p<<<", [Result]),
+    case Result of
+        {aborted, Reason} -> {error, Reason};
+        {atomic, Res} ->
+            case Res of
+                [] -> {error, not_allowed};
+                [Policy] -> 
+                    case Policy == write of
+                        false -> {error, not_allowed};
+                        % SET TIMEOUT
+                        true -> set_timeout(SpreadSheet, TableIndex, I, J, Value, Timeout)
+                    end;
+                Msg1 -> {error, {unknown, Msg1}} 
+            end
+    end
+.
+
+% NON ESPORTATA ALL'ESTERNO
+set_timeout(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
+    mia_flush(),
+    ValueToRestore = spreadsheet:get(SpreadSheet, TableIndex, I, J),
+    MioPid = self(),
+    % creo un processo timer
+    spawn(fun() ->
+        receive after Timeout -> MioPid!{timeout} end
+    end),
+    % creo un processo setter
+    spawn(fun() ->
+        MioPid!{result, set_value(SpreadSheet, TableIndex, I, J, Value)}
+    end),
+    receive
+        {result, Res} -> Res;
+        {timeout} ->
+            % DEVO ASPETTARE COMUNQUE CHE IL SETTER FINISCA 
+            % DI SCRIVERE ALTRIMENTI C'E' RACE CONDITION !!!
+            receive
+                {result, _} -> ok
+            end,
+            % rimetto le cose come prima
+            Result = set_value(SpreadSheet, TableIndex, I, J, ValueToRestore),
+            case Result of
+                {error, Reason} -> {error, Reason};
+                ok -> timeout
+            end
+    after 10000 -> {error, no_message_received}
+    end
 .
 
 share(Foglio, AccessPolicies)->
