@@ -20,6 +20,7 @@ to_csv(TableName, FileName) ->
             % Apri il file per la scrittura
             {ok, File} = file:open(FileName, [write]),
             % Estrai i dati dalla tabella Mnesia
+            % (una tabella Mnesia in RAM e' una ETS)
             Records = ets:tab2list(TableName),
             %io:format("questo è il mio record: ~p",[Records]),
             % Converti i dati in formato CSV
