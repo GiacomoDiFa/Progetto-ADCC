@@ -167,6 +167,7 @@ get(SpreadSheet, TableIndex, I, J) ->
 .
 
 % NON ESPORTATA ALL'ESTERNO
+% get senza controlli
 get_value(SpreadSheet, TableIndex, I, J) ->
     TakeRowQuery = qlc:q(
         % list comprehension
@@ -234,11 +235,13 @@ get_timeout(SpreadSheet, TableIndex, I, J, Timeout) ->
     spawn(fun() ->
         MioPid!{result, get_value(SpreadSheet, TableIndex, I, J)}
     end),
-    receive
+    ToReturn = receive
         {result, Res} -> Res;
         {timeout} -> timeout
     after 10000 -> {error, no_message_received}
-    end
+    end,
+    mia_flush(),
+    ToReturn
 .
 
 % NB GET E SET TIMEOUT
@@ -285,6 +288,7 @@ set(SpreadSheet, TableIndex, I, J, Value) ->
 .
 
 % NON ESPORTATA ALL'ESTERNO
+% set senza controlli
 set_value(SpreadSheet, TableIndex, I, J, Value) ->
     TakeColumnQuery = qlc:q(
         % list comprehension
@@ -356,34 +360,42 @@ set(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
 .
 
 % NON ESPORTATA ALL'ESTERNO
+% SE VA IN TIMEOUT ANNULLO IL SETTING
 set_timeout(SpreadSheet, TableIndex, I, J, Value, Timeout) ->
     mia_flush(),
-    ValueToRestore = spreadsheet:get(SpreadSheet, TableIndex, I, J),
-    MioPid = self(),
-    % creo un processo timer
-    spawn(fun() ->
-        receive after Timeout -> MioPid!{timeout} end
-    end),
-    % creo un processo setter
-    spawn(fun() ->
-        MioPid!{result, set_value(SpreadSheet, TableIndex, I, J, Value)}
-    end),
-    receive
-        {result, Res} -> Res;
-        {timeout} ->
-            % DEVO ASPETTARE COMUNQUE CHE IL SETTER FINISCA 
-            % DI SCRIVERE ALTRIMENTI C'E' RACE CONDITION !!!
+    % a questo punto ho i permessi in scrittura (e lettura) gia' verificati
+    ValueToRestore = get_value(SpreadSheet, TableIndex, I, J),
+    ToReturn = case ValueToRestore of
+        {error, Reason1} -> {error, Reason1};
+        _ -> 
+            MioPid = self(),
+            % creo un processo timer
+            spawn(fun() ->
+                receive after Timeout -> MioPid!{timeout} end
+            end),
+            % creo un processo setter
+            spawn(fun() ->
+                MioPid!{result, set_value(SpreadSheet, TableIndex, I, J, Value)}
+            end),
             receive
-                {result, _} -> ok
-            end,
-            % rimetto le cose come prima
-            Result = set_value(SpreadSheet, TableIndex, I, J, ValueToRestore),
-            case Result of
-                {error, Reason} -> {error, Reason};
-                ok -> timeout
+                {result, Res} -> Res;
+                {timeout} ->
+                    % DEVO ASPETTARE COMUNQUE CHE IL SETTER FINISCA 
+                    % DI SCRIVERE ALTRIMENTI C'E' RACE CONDITION !!!
+                    receive
+                        {result, _} -> ok
+                    end,
+                    % rimetto le cose come prima
+                    Result = set_value(SpreadSheet, TableIndex, I, J, ValueToRestore),
+                    case Result of
+                        {error, Reason} -> {error, Reason};
+                        ok -> timeout
+                    end
+            after 10000 -> {error, no_message_received}
             end
-    after 10000 -> {error, no_message_received}
-    end
+    end,
+    mia_flush(),
+    ToReturn
 .
 
 share(Foglio, AccessPolicies)->
