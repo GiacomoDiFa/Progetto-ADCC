@@ -1,6 +1,13 @@
 -module(csv_manager).
--export([to_csv/2,from_csv/1]).
+-export([
+    to_csv/2,
+    to_csv/3,
+    from_csv/1,
+    from_csv/2
+]).
+
 -record(spreadsheet, {table, riga, colonne}).
+
 % Funzione per ottenere il contenuto della tabella Mnesia e scriverlo su un file CSV
 % FileName := "nome_tabella.csv"
 to_csv(TableName, FileName) ->
@@ -13,6 +20,7 @@ to_csv(TableName, FileName) ->
             % Apri il file per la scrittura
             {ok, File} = file:open(FileName, [write]),
             % Estrai i dati dalla tabella Mnesia
+            % (una tabella Mnesia in RAM e' una ETS)
             Records = ets:tab2list(TableName),
             %io:format("questo è il mio record: ~p",[Records]),
             % Converti i dati in formato CSV
@@ -93,5 +101,82 @@ process_line(Line) ->
     case Result of
         {aborted,Reason} -> {error,Reason};
         {atomic,Res} -> Res
+    end
+.
+
+% TIMEOUT VERSIONS
+to_csv(TableName, FileName, Timeout) ->
+    mia_flush(),
+    MioPid = self(),
+    % creo un processo timer
+    spawn(fun() ->
+        receive after Timeout -> MioPid!{timeout} end
+    end),
+    % creo un processo getter
+    spawn(fun() ->
+        MioPid!{result, to_csv(TableName, FileName)}
+    end),
+    ToReturn = receive
+        {result, Res} -> Res;
+        {timeout} ->
+            % DEVO ASPETTARE COMUNQUE CHE IL FILE VENGA SCRITTO 
+            % ALTRIMENTI C'E' RACE CONDITION !!!
+            receive
+                {result, _} -> ok
+            end,
+            % rimetto le cose come prima (cancello il file)
+            Result = file:delete(FileName),
+            case Result of
+                {error, Reason} -> {error, Reason};
+                ok -> timeout
+            end
+    after 10000 -> {error, no_message_received}
+    end,
+    mia_flush(),
+    ToReturn
+.
+
+from_csv(FilePath, Timeout) ->
+    mia_flush(),
+    MioPid = self(),
+    % creo un processo timer
+    spawn(fun() ->
+        receive after Timeout -> MioPid!{timeout} end
+    end),
+    % creo un processo getter
+    spawn(fun() ->
+        MioPid!{result, from_csv(FilePath)}
+    end),
+    ToReturn = receive
+        {result, Res} -> Res;
+        {timeout} -> 
+            % DEVO ASPETTARE COMUNQUE CHE IL FILE VENGA CARICATO 
+            % ALTRIMENTI C'E' RACE CONDITION !!!
+            receive
+                {result, _} -> ok
+            end,
+            % rimetto le cose come prima (cancello la tabella)
+            TableName = remove_extension(FilePath),
+            Result = mnesia:delete_table(list_to_atom(TableName)),
+            case Result of
+                {aborted, Reason} -> {error, Reason};
+                {atomic, ok} -> timeout
+            end
+    after 10000 -> {error, no_message_received}
+    end,
+    mia_flush(),
+    ToReturn
+.
+
+% DA METTERE IN UN MODULO UTILIY? (DEBUG??)
+% implemento mia flush
+mia_flush() ->
+    receive
+        % consuma il pattern e va in loop
+        _AnyPattern -> mia_flush()
+    after
+        % se non ha messaggi nella coda 
+        % restituisce subito (0 sec) ok
+        0 -> ok
     end
 .
