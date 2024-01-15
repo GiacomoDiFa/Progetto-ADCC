@@ -4,11 +4,11 @@
 
 -export([
     create_table/0,
-    create_table_distrib/1,
+    create_table_distrib/0,
     start/0,
-    start_distrib/1,
+    start_distrib/0,
     stop/0,
-    stop_distrib/1,
+    stop_distrib/0,
     save_name/1,
     lookup_name/1
 ]).
@@ -61,13 +61,13 @@ create_table() ->
 % DISTRIBUITA
 % da chiamare SOLO UNA VOLTA per creare il DB Mnesia DISTRIBUITO
 % serve per creare i file del DB sui vari nodi (installare il DB)
-create_table_distrib(RemoteNodeList) ->
+create_table_distrib() ->
     % creo il DB in locale -> node() e in remoto 
     % nei nodi che presenti in RemoteNodeList
-    NodeList = [node()] ++ RemoteNodeList,
+    NodeList = [node()] ++ nodes(),
     mnesia:create_schema(NodeList),
     % faccio partire Mnesia nei nodi remoti e da me
-    start_remote(RemoteNodeList),
+    start_remote(),
     % creo lo schema delle due tabelle del DB coi campi che prendo dai records
     %SpreadsheetFields = record_info(fields, spreadsheet),
     OwnerFields = record_info(fields, owner),
@@ -91,7 +91,7 @@ create_table_distrib(RemoteNodeList) ->
         {type, bag}
     ]),
     % stop per ogni nodo remoto e per me
-    distribution:stop_distrib(RemoteNodeList)
+    distribution:stop_distrib()
 .
 
 % LOCALE
@@ -106,9 +106,9 @@ start() ->
 
 % DISTRIBUITA
 % fa partire Mnesia e carica le tabelle
-start_distrib(RemoteNodeList) ->
+start_distrib() ->
     % start per ogni nodo remoto e per me
-    start_remote(RemoteNodeList),
+    start_remote(),
     % aspetto (5 sec) che vengano caricate le tabelle del DB (distribuito)
     mnesia:wait_for_tables([owner, policy, format], 5000)
 .
@@ -116,7 +116,7 @@ start_distrib(RemoteNodeList) ->
 % NON VIENE ESPORTATA ALL'ESTERNO
 % DISTRIBUITA
 % fa partire Mnesia ma non carica le tabelle
-start_remote(RemoteNodeList) ->
+start_remote() ->
     % NB nel DISTRIBUITO devo far partire Mnesia da dentro
     % ciascun nodo remoto e poi lo faccio partire da me in locale
     MioPid = self(),
@@ -127,11 +127,15 @@ start_remote(RemoteNodeList) ->
                 fun() ->
                     % NB devo farlo "dentro" ogni nodo remoto 
                     mnesia:start(),
+                    io:format("~p",[Node]),
+                    %NB ME LI STAMPA TUTTI, OGNUNO STAMPA IL PROPRIO NOME MA SOLO L'ULTIMO MI REGISTRA IL NOME GLOBALE
+                    %PERCHE????
+                    global:register_name(Node,MioPid),
                     MioPid!{mnesia_started} 
                 end
             ) 
         end,
-        RemoteNodeList
+        nodes()
     ),
     % mi metto in attesa che Mnesia sia partito in tutti i nodi
     % remoti e poi lo eseguo nel mio nodo locale (master)
@@ -141,7 +145,7 @@ start_remote(RemoteNodeList) ->
                 {mnesia_started} -> ok 
             end
         end,
-        RemoteNodeList
+        nodes()
     ),
     % faccio partire Mnesia in locale
     mnesia:start()
@@ -153,7 +157,7 @@ stop() -> mnesia:stop().
 
 % DISTRIBUITA
 % stop per ogni nodo remoto e per me
-stop_distrib(RemoteNodeList) ->
+stop_distrib() ->
     % NB nel DISTRIBUITO devo far terminare Mnesia da dentro
     % ciascun nodo remoto e poi lo faccio terminare da me in locale
     MioPid = self(),
@@ -168,7 +172,7 @@ stop_distrib(RemoteNodeList) ->
                 end
             ) 
         end,
-        RemoteNodeList
+        nodes()
     ),
     % mi metto in attesa che Mnesia sia terminato in tutti i nodi
     % remoti e poi lo termino nel mio nodo locale (master)
@@ -178,7 +182,7 @@ stop_distrib(RemoteNodeList) ->
                 {mnesia_stopped} -> ok 
             end
         end,
-        RemoteNodeList
+        nodes()
     ),
     % faccio terminare Mnesia in locale
     mnesia:stop()
