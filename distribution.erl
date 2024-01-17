@@ -1,7 +1,6 @@
 % modulo per gestire la distribuzione nei nodi
-% GESTISCE ANCHE IL CASO IN LOCALE
+% gestisce anche il caso in locale
 -module(distribution).
-
 
 -export([
     create_table/0,
@@ -9,21 +8,14 @@
     start/0,
     start_distrib/0,
     stop/0,
-    stop_distrib/0,
-    save_name/1,
-    lookup_name/1
+    stop_distrib/0
 ]).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% meglio se faccio un file records.hrl ???
-% definisco i record che utilizzero'
-%record che rappresenta foglio
-%-record(spreadsheet, {table, riga, colonne}).
-%record che rappresenta owner del foglio
+% record che rappresenta owner del foglio
 -record(owner, {foglio, pid}).
-%record che rappresenta le policy
+% record che rappresenta le policy
 -record(policy, {pid, foglio, politica}).
-%record che rappresenta il formato dei fogli (BAG)
+% record che rappresenta il formato dei fogli (BAG)
 -record(format, {foglio, tab_index, nrighe, ncolonne}).
 
 % LOCALE
@@ -35,8 +27,7 @@ create_table() ->
     mnesia:create_schema(NodeList),
     % faccio partire Mnesia
     mnesia:start(),
-    % creo lo schema delle due tablelle del DB coi campi che prendo dai records
-    %SpreadsheetFields = record_info(fields, spreadsheet),
+    % creo lo schema delle due tabelle del DB coi campi che prendo dai records
     OwnerFields = record_info(fields, owner),
     PolicyFields = record_info(fields, policy),
     FormatFields = record_info(fields, format),
@@ -63,14 +54,12 @@ create_table() ->
 % da chiamare SOLO UNA VOLTA per creare il DB Mnesia DISTRIBUITO
 % serve per creare i file del DB sui vari nodi (installare il DB)
 create_table_distrib() ->
-    % creo il DB in locale -> node() e in remoto 
-    % nei nodi che presenti in RemoteNodeList
+    % creo il DB in locale -> node() e in remoto -> nodes()
     NodeList = [node()] ++ nodes(),
     mnesia:create_schema(NodeList),
     % faccio partire Mnesia nei nodi remoti e da me
     start_remote(),
     % creo lo schema delle due tabelle del DB coi campi che prendo dai records
-    %SpreadsheetFields = record_info(fields, spreadsheet),
     OwnerFields = record_info(fields, owner),
     PolicyFields = record_info(fields, policy),
     FormatFields = record_info(fields, format),
@@ -183,12 +172,4 @@ stop_distrib() ->
     ),
     % faccio terminare Mnesia in locale
     mnesia:stop()
-.
-
-save_name(Name)->
-    global:register_name(Name,self())
-.
-
-lookup_name(Name)->
-    global:whereis_name(Name)
 .

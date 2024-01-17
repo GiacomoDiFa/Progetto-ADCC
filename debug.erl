@@ -1,7 +1,5 @@
-% modulo di debug
+% modulo di debug e testing
 -module(debug).
-
-%-import(spreadsheet, [share/2]).
 
 -export([
     delete_close_tables/0,
@@ -157,15 +155,12 @@ test_mixed(N, M, Foglio) ->
 .
 
 % MILLISECONDI !!!
-% to calclulate elapsed time for test functions
-% debug:timing_ms(test_mixed, [1000, 10, foglio1]).
 timing_ms(TestName, Params) -> 
     {Time, _Value} = timer:tc(debug, TestName, Params, millisecond),
     Time
 .
 
 % MILLISECONDI !!!
-% test battery
 test_battery(Foglio) ->
     ParamsSequential = [100, Foglio],
     TimeSequential = timing_ms(test_sequential, ParamsSequential),
