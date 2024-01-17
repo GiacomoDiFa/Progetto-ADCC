@@ -2,6 +2,7 @@
 % GESTISCE ANCHE IL CASO IN LOCALE
 -module(distribution).
 
+
 -export([
     create_table/0,
     create_table_distrib/0,
@@ -127,11 +128,7 @@ start_remote() ->
                 fun() ->
                     % NB devo farlo "dentro" ogni nodo remoto 
                     mnesia:start(),
-                    io:format("~p",[Node]),
-                    %NB ME LI STAMPA TUTTI, OGNUNO STAMPA IL PROPRIO NOME MA SOLO L'ULTIMO MI REGISTRA IL NOME GLOBALE
-                    %PERCHE????
-                    global:register_name(Node,MioPid),
-                    MioPid!{mnesia_started} 
+                    MioPid!{mnesia_started}
                 end
             ) 
         end,
